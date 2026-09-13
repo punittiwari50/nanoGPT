@@ -1,0 +1,59 @@
+services:
+  nanogpt-phase3-build:
+    container_name: nanogpt-phase3-build
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      target: builder-ai
+    environment:
+      - VIRTUAL_ENV=/opt/venv_nanogpt
+      - PATH=/opt/venv_nanogpt/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+      - PYTHONIOENCODING=utf-8
+    volumes:
+      - ../..:/workspace/source:rw
+      - ../scripts:/workspace/scripts:ro
+      - ../dist:/workspace/dist:rw
+      - ../logs:/workspace/logs:rw
+      - ../phase1_dist:/workspace/phase1_dist:ro
+    restart: "no"
+    command: ["/workspace/scripts/build.sh"]
+
+  nanogpt-phase3-app:
+    container_name: nanogpt-phase3-app
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      target: runtime
+    environment:
+      - VIRTUAL_ENV=/opt/venv_nanogpt
+      - PATH=/opt/venv_nanogpt/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+      - APP_PORT=8003
+      - NANOGPT_CKPT=/workspace/dist/model/ckpt.pt
+      - PYTHONIOENCODING=utf-8
+    ports:
+      - "8003:8003"
+    volumes:
+      - ../..:/workspace/source:ro
+      - ../scripts:/workspace/scripts:ro
+      - ../dist:/workspace/dist:ro
+      - ../logs:/workspace/logs:rw
+    restart: unless-stopped
+    command: ["/workspace/scripts/deploy.sh"]
+
+  nanogpt-phase3-verify:
+    container_name: nanogpt-phase3-verify
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      target: builder-ai
+    environment:
+      - VIRTUAL_ENV=/opt/venv_nanogpt
+      - PATH=/opt/venv_nanogpt/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+      - PYTHONIOENCODING=utf-8
+    volumes:
+      - ../..:/workspace/source:ro
+      - ../scripts:/workspace/scripts:ro
+      - ../dist:/workspace/dist:ro
+      - ../logs:/workspace/logs:rw
+    restart: "no"
+    command: ["/workspace/scripts/verify.sh"]
