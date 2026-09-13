@@ -74,7 +74,11 @@ dtype = 'bfloat16' if torch.cuda.is_available() and torch.cuda.is_bf16_supported
 compile = True # use PyTorch 2.0 to compile the model to be faster
 # -----------------------------------------------------------------------------
 config_keys = [k for k,v in globals().items() if not k.startswith('_') and isinstance(v, (int, float, bool, str))]
-exec(open('configurator.py').read()) # overrides from command line or config file
+configurator_path = os.path.join(os.path.dirname(__file__), 'configurator.py') if '__file__' in globals() else 'configurator.py'
+if os.path.exists(configurator_path):
+    exec(open(configurator_path).read())
+elif os.path.exists('configurator.py'):
+    exec(open('configurator.py').read())
 config = {k: globals()[k] for k in config_keys} # will be useful for logging
 # -----------------------------------------------------------------------------
 
@@ -193,7 +197,11 @@ if block_size < model.config.block_size:
 model.to(device)
 
 # initialize a GradScaler. If enabled=False scaler is a no-op
-scaler = torch.cuda.amp.GradScaler(enabled=(dtype == 'float16'))
+scaler_enabled = (device_type == 'cuda' and dtype == 'float16')
+if hasattr(torch.amp, 'GradScaler'):
+    scaler = torch.amp.GradScaler('cuda', enabled=scaler_enabled)
+else:
+    scaler = torch.cuda.amp.GradScaler(enabled=scaler_enabled)
 
 # optimizer
 optimizer = model.configure_optimizers(weight_decay, learning_rate, (beta1, beta2), device_type)

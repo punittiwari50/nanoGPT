@@ -2,11 +2,18 @@
 Sample from a trained model
 """
 import os
+import sys
 import pickle
 from contextlib import nullcontext
 import torch
 import tiktoken
 from model import GPTConfig, GPT
+
+# Ensure clean UTF-8 standard output and error across all terminals and environments
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+if hasattr(sys.stderr, 'reconfigure'):
+    sys.stderr.reconfigure(encoding='utf-8', errors='replace')
 
 # -----------------------------------------------------------------------------
 init_from = 'resume' # either 'resume' (from an out_dir) or a gpt2 variant (e.g. 'gpt2-xl')
@@ -20,7 +27,12 @@ seed = 1337
 device = 'cuda' # examples: 'cpu', 'cuda', 'cuda:0', 'cuda:1', etc.
 dtype = 'bfloat16' if torch.cuda.is_available() and torch.cuda.is_bf16_supported() else 'float16' # 'float32' or 'bfloat16' or 'float16'
 compile = False # use PyTorch 2.0 to compile the model to be faster
-exec(open('configurator.py').read()) # overrides from command line or config file
+dataset = '' # optional dataset name override (e.g. 'combined')
+configurator_path = os.path.join(os.path.dirname(__file__), 'configurator.py') if '__file__' in globals() else 'configurator.py'
+if os.path.exists(configurator_path):
+    exec(open(configurator_path).read())
+elif os.path.exists('configurator.py'):
+    exec(open('configurator.py').read())
 # -----------------------------------------------------------------------------
 
 torch.manual_seed(seed)
@@ -55,9 +67,18 @@ if compile:
 
 # look for the meta pickle in case it is available in the dataset folder
 load_meta = False
-if init_from == 'resume' and 'config' in checkpoint and 'dataset' in checkpoint['config']: # older checkpoints might not have these...
-    meta_path = os.path.join('data', checkpoint['config']['dataset'], 'meta.pkl')
-    load_meta = os.path.exists(meta_path)
+target_dataset = dataset if dataset else (checkpoint.get('config', {}).get('dataset', '') if 'checkpoint' in globals() and 'config' in checkpoint else '')
+candidate_meta_paths = [
+    os.path.join('data', target_dataset, 'meta.pkl') if target_dataset else '',
+    os.path.join(os.path.dirname(__file__), 'data', target_dataset, 'meta.pkl') if ('__file__' in globals() and target_dataset) else '',
+    os.path.join(out_dir, 'meta.pkl'),
+    os.path.join(out_dir, '..', 'meta.pkl'),
+]
+for cmp in candidate_meta_paths:
+    if cmp and os.path.exists(cmp):
+        meta_path = cmp
+        load_meta = True
+        break
 if load_meta:
     print(f"Loading meta from {meta_path}...")
     with open(meta_path, 'rb') as f:
@@ -71,7 +92,17 @@ else:
     print("No meta.pkl found, assuming GPT-2 encodings...")
     enc = tiktoken.get_encoding("gpt2")
     encode = lambda s: enc.encode(s, allowed_special={"<|endoftext|>"})
-    decode = lambda l: enc.decode(l)
+    def decode(tokens):
+        valid_tokens = [t for t in tokens if t < 50257]
+        try:
+            # Decode token bytes into clean UTF-8 string
+            raw_bytes = enc.decode_bytes(valid_tokens)
+            decoded_str = raw_bytes.decode('utf-8', errors='replace')
+            # Strip dangling replacement characters (\ufffd) caused by isolated byte tokens
+            return decoded_str.replace('\ufffd', '')
+        except Exception:
+            text = enc.decode(valid_tokens)
+            return text.replace('\ufffd', '')
 
 # encode the beginning of the prompt
 if start.startswith('FILE:'):
@@ -80,10 +111,23 @@ if start.startswith('FILE:'):
 start_ids = encode(start)
 x = (torch.tensor(start_ids, dtype=torch.long, device=device)[None, ...])
 
+print("\n" + "=" * 60)
+print(f"INPUT PROMPT: {start}")
+print("=" * 60, flush=True)
+
 # run generation
 with torch.no_grad():
     with ctx:
         for k in range(num_samples):
             y = model.generate(x, max_new_tokens, temperature=temperature, top_k=top_k)
-            print(decode(y[0].tolist()))
-            print('---------------')
+            full_text = decode(y[0].tolist())
+            prompt_token_count = x.shape[1]
+            generated_tokens = y[0][prompt_token_count:].tolist()
+            completion_text = decode(generated_tokens)
+            
+            print(f"\n--- [SAMPLE {k+1}/{num_samples}] ---")
+            print(">>> GENERATED OUTPUT:")
+            print(completion_text)
+            print("\n>>> FULL SEQUENCE (PROMPT + GENERATION):")
+            print(full_text)
+            print("-" * 60, flush=True)

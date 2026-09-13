@@ -1,0 +1,115 @@
+services:
+  # ============================================================================
+  # 1. Hermetic Builder Service (Runs to Completion, Builds Wheel & Binaries)
+  # ============================================================================
+  nanogpt-build:
+    container_name: nanogpt-build
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      target: builder-ai
+    environment:
+      - VIRTUAL_ENV=/opt/venv_nanogpt
+      - PATH=/opt/venv_nanogpt/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+      - DATASETS_DIR=/workspace/datasets
+      - HF_HOME=/workspace/datasets/huggingface
+      - HF_DATASETS_CACHE=/workspace/datasets/huggingface/datasets
+      - HF_HUB_CACHE=/workspace/datasets/huggingface/hub
+      - TRANSFORMERS_CACHE=/workspace/datasets/huggingface/transformers
+      - TORCH_HOME=/workspace/.cache/torch
+      - DOWNLOAD_CACHE=/workspace/datasets/github_raw
+    volumes:
+      - ../..:/workspace/source:rw
+      - ../scripts:/workspace/scripts:ro
+      - ../dist:/workspace/dist:rw
+      - ../docs:/workspace/docs:rw
+      - ../logs:/workspace/logs:rw
+      # Well-Structured Host Dataset Repository (STD-BLD-021)
+      - ../datasets:/workspace/datasets:rw
+      # Toolchain Package Caches (STD-BLD-008)
+      - ../.cache/uv:/root/.cache/uv:rw
+      - ../.cache/pip:/root/.cache/pip:rw
+      - ../.cache/torch:/root/.cache/torch:rw
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: "no"
+    command: ["/workspace/scripts/build.sh"]
+
+  # ============================================================================
+  # 2. Hardened Runtime Service (Production Inference HTTP Server)
+  # ============================================================================
+  nanogpt-app:
+    container_name: nanogpt-app
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      target: runtime
+    environment:
+      - VIRTUAL_ENV=/opt/venv_nanogpt
+      - PATH=/opt/venv_nanogpt/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+      - DATASETS_DIR=/workspace/datasets
+      - HF_HOME=/workspace/datasets/huggingface
+      - HF_DATASETS_CACHE=/workspace/datasets/huggingface/datasets
+      - HF_HUB_CACHE=/workspace/datasets/huggingface/hub
+      - TRANSFORMERS_CACHE=/workspace/datasets/huggingface/transformers
+      - TORCH_HOME=/workspace/.cache/torch
+      - DOWNLOAD_CACHE=/workspace/datasets/github_raw
+      - APP_PORT=8000
+    ports:
+      - "8000:8000"
+    volumes:
+      - ../..:/workspace/source:ro
+      - ../scripts:/workspace/scripts:ro
+      - ../dist:/workspace/dist:ro
+      - ../docs:/workspace/docs:ro
+      - ../logs:/workspace/logs:rw
+      - ../datasets:/workspace/datasets:ro
+    depends_on:
+      nanogpt-build:
+        condition: service_completed_successfully
+    deploy:
+      resources:
+        limits:
+          cpus: "4.0"
+          memory: 8G
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+    command: ["/workspace/scripts/deploy.sh"]
+
+  # ============================================================================
+  # 3. Automated 7-Gate Verification Suite (STD-BLD-016, 017, 021)
+  # ============================================================================
+  nanogpt-verify:
+    container_name: nanogpt-verify
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      target: builder-ai
+    environment:
+      - VIRTUAL_ENV=/opt/venv_nanogpt
+      - PATH=/opt/venv_nanogpt/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+      - DATASETS_DIR=/workspace/datasets
+      - HF_HOME=/workspace/datasets/huggingface
+      - HF_DATASETS_CACHE=/workspace/datasets/huggingface/datasets
+      - HF_HUB_CACHE=/workspace/datasets/huggingface/hub
+      - TRANSFORMERS_CACHE=/workspace/datasets/huggingface/transformers
+      - TORCH_HOME=/workspace/.cache/torch
+      - DOWNLOAD_CACHE=/workspace/datasets/github_raw
+    volumes:
+      - ../..:/workspace/source:ro
+      - ../scripts:/workspace/scripts:ro
+      - ../dist:/workspace/dist:ro
+      - ../docs:/workspace/docs:ro
+      - ../logs:/workspace/logs:rw
+      - ../datasets:/workspace/datasets:ro
+    restart: "no"
+    command: ["/workspace/scripts/verify.sh"]

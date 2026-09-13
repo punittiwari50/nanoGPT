@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nanogpt"
+version = "0.1.0"
+description = "The simplest, fastest repository for training/finetuning medium-sized GPTs."
+readme = "README.md"
+authors = [{ name = "Andrej Karpathy" }]
+license = "MIT"
+requires-python = ">=3.8"
+dependencies = [
+    "torch",
+    "numpy",
+    "transformers",
+    "datasets",
+    "tiktoken",
+    "wandb",
+    "tqdm"
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["*"]
+exclude = ["data*", "config*", "assets*", "build*"]
